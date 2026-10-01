@@ -1,0 +1,93 @@
+{
+  "name": "webready",
+  "version": "1.0.0",
+  "description": "Make your media web-ready: responsive AVIF/WebP images and MP4 video with ready-to-paste markup and React/Vue components — plus a browser module that shrinks photos before upload.",
+  "type": "module",
+  "bin": {
+    "webready": "src/cli.js"
+  },
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./browser": "./src/browser/index.js",
+    "./react": "./src/react/index.js",
+    "./vue": "./src/vue/index.js",
+    "./schema.json": "./schema.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "schema.json",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node test/pipeline.test.mjs && node test/cli.test.mjs && node test/components.test.mjs && node test/browser.test.mjs",
+    "test:pipeline": "node test/pipeline.test.mjs",
+    "test:cli": "node test/cli.test.mjs",
+    "test:components": "node test/components.test.mjs",
+    "test:browser": "node test/browser.test.mjs"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.7.0",
+    "console-log-colors": "^0.5.0",
+    "sharp": "^0.35.3"
+  },
+  "peerDependencies": {
+    "ffmpeg-static": "^5.3.0",
+    "react": ">=18",
+    "vue": ">=3.3"
+  },
+  "peerDependenciesMeta": {
+    "ffmpeg-static": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "ffmpeg-static": "^5.3.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "vue": "^3.5.0"
+  },
+  "keywords": [
+    "responsive-images",
+    "srcset",
+    "picture",
+    "avif",
+    "webp",
+    "video",
+    "mp4",
+    "ffmpeg",
+    "sharp",
+    "image-optimization",
+    "compress",
+    "upload",
+    "react",
+    "vue",
+    "cli"
+  ],
+  "author": "Sajjad Karimi (https://github.com/sajjadlabs)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sajjadlabs/webready.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sajjadlabs/webready/issues"
+  },
+  "homepage": "https://github.com/sajjadlabs/webready#readme",
+  "allowScripts": {
+    "ffmpeg-static@5.3.0": true
+  }
+}

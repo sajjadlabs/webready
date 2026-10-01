@@ -1,0 +1,14 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+coverage/
+# Windows download markers, when working in WSL
+*:Zone.Identifier
+# The demo project: your photos and their outputs stay local
+examples/demo-project/media/*
+!examples/demo-project/media/.gitkeep
+examples/demo-project/media-web/
+examples/demo-project/webready.config.json
