@@ -10,9 +10,11 @@ Output docs/demo.gif
 Require node
 
 Set Shell "bash"
-Set FontSize 18
-Set Width 1200
-Set Height 760
+# Tall enough for the whole session to fit without scrolling: once the
+# terminal scrolls, Wait+Screen stops seeing new lines.
+Set FontSize 16
+Set Width 1100
+Set Height 900
 Set Padding 24
 Set Framerate 30
 Set Theme "Catppuccin Mocha"
@@ -48,10 +50,15 @@ Wait+Screen /Start\?/
 Sleep 2.5s
 Enter
 
-# Encoding takes as long as it takes
-Wait+Screen@180s /Save these settings/
-Sleep 2.5s
+# A few seconds of the progress bar, then skip ahead to the result.
+# The report on screen says how long the encoding really took.
+Sleep 4s
+Hide
+Wait+Screen@600s /Save these settings/
+Show
+Sleep 3s
 Enter
 
-Wait+Screen /Your media is web-ready/
+# Finished when the shell prompt is back
+Wait
 Sleep 4s
