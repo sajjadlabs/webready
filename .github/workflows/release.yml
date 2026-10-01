@@ -1,0 +1,38 @@
+name: Release
+
+# Publishes to npm when a GitHub release is published, using npm trusted
+# publishing: GitHub proves the workflow's identity to npm, so no token is
+# stored anywhere, and npm attaches provenance automatically.
+# Setup (once): npmjs.com → webready → Settings → Trusted Publisher →
+# GitHub Actions: sajjadlabs / webready / release.yml.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write # trusted publishing and provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      # No registry-url here: it writes an empty token to .npmrc, which
+      # stops npm from using trusted publishing.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install -g npm@latest # trusted publishing needs npm 11.5.1+
+      - run: npm ci
+      - run: npm test
+      - name: Publish
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "webready@$VERSION" version >/dev/null 2>&1; then
+            echo "webready@$VERSION is already on npm; nothing to publish."
+          else
+            npm publish --access public
+          fi
