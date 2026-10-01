@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://unpkg.com/webready/schema.json",
+  "title": "webready config",
+  "description": "Settings for webready — https://github.com/sajjadlabs/webready",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "input": {
+      "type": "string",
+      "description": "The folder with your original images and videos, relative to this file."
+    },
+    "out": {
+      "type": "string",
+      "description": "The output folder, relative to this file. Default: a sibling of the input named <input>-web."
+    },
+    "publicPath": {
+      "type": "string",
+      "description": "The URL the output folder is served at, such as /media or https://cdn.example.com/media. Used in the markup, the manifest and the components. Without it, paths are relative to the output folder."
+    },
+    "widths": {
+      "type": "array",
+      "description": "Rendition widths in pixels. Never upscaled: the largest is capped at each source's width.",
+      "items": { "type": "integer", "minimum": 16, "maximum": 16384 },
+      "minItems": 1,
+      "uniqueItems": true,
+      "default": [640, 1024, 1440, 1920]
+    },
+    "only": {
+      "description": "Process only images or only videos.",
+      "enum": ["images", "videos"]
+    },
+    "markup": {
+      "description": "The style of webready.html: srcset (the browser picks by slot width and screen density), media (by viewport width) or none (manifest only).",
+      "enum": ["srcset", "media", "none"],
+      "default": "srcset"
+    },
+    "concurrency": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Images encoded in parallel. Default: the number of CPU cores."
+    },
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "description": "avif, webp, or both — the first is preferred, the last is the <img> fallback and the video poster format.",
+          "oneOf": [
+            { "enum": ["avif", "webp"] },
+            { "type": "array", "items": { "enum": ["avif", "webp"] }, "minItems": 1, "uniqueItems": true }
+          ],
+          "default": ["avif"]
+        },
+        "quality": {
+          "description": "1–100: one number for every format, or one per format. AVIF 60 and WebP 80 look about the same.",
+          "oneOf": [
+            { "type": "integer", "minimum": 1, "maximum": 100 },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "avif": { "type": "integer", "minimum": 1, "maximum": 100, "default": 60 },
+                "webp": { "type": "integer", "minimum": 1, "maximum": 100, "default": 80 }
+              }
+            }
+          ]
+        },
+        "effort": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9,
+          "default": 4,
+          "description": "Encoder effort: higher is smaller and slower. AVIF uses 0–9, WebP 0–6 (higher values are capped)."
+        },
+        "lossless": {
+          "type": "boolean",
+          "default": false,
+          "description": "Lossless images — rarely worth it for the web."
+        }
+      }
+    },
+    "videos": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "quality": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 80,
+          "description": "1–100, mapped to x264's CRF: 100 → 18, 80 → 22, 50 → 29."
+        },
+        "preset": {
+          "enum": ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"],
+          "default": "medium",
+          "description": "x264 preset: slower presets make smaller files at the same quality."
+        },
+        "poster": {
+          "type": "boolean",
+          "default": true,
+          "description": "Make a poster image for each video."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>webready/browser — demo</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; color: #1f2937; }
+    body { margin: 0 auto; max-width: 64rem; padding: 1.25rem; }
+    h1 { font-size: 1.25rem; margin: 0 0 .25rem; }
+    p.lead { margin: 0 0 1rem; color: #4b5563; }
+    fieldset { border: 1px solid #d1d5db; border-radius: .5rem; display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; padding: .75rem 1rem; }
+    label { display: flex; align-items: center; gap: .4rem; font-size: .875rem; }
+    .support { margin: .75rem 0; font-size: .875rem; }
+    .support span { display: inline-block; margin: 0 .5rem .25rem 0; padding: .1rem .5rem; border-radius: 999px; background: #f3f4f6; }
+    .support .yes { background: #dcfce7; } .support .no { background: #fee2e2; }
+    .drop { margin: 1rem 0; padding: 1.5rem; border: 2px dashed #9ca3af; border-radius: .75rem; text-align: center; }
+    .drop.over { background: #eff6ff; border-color: #3b82f6; }
+    table { width: 100%; border-collapse: collapse; font-size: .8125rem; }
+    th, td { padding: .4rem .5rem; border-bottom: 1px solid #e5e7eb; text-align: left; vertical-align: middle; }
+    td img { width: 64px; height: 48px; object-fit: cover; border-radius: .25rem; }
+    .num { font-variant-numeric: tabular-nums; }
+    .err { color: #b91c1c; }
+    .total { margin-top: .75rem; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>webready/browser</h1>
+  <p class="lead">Pick photos. Nothing is uploaded: everything happens in this page.</p>
+
+  <fieldset>
+    <label>Max dimension
+      <select id="max">
+        <option>1600</option><option>2048</option><option selected>2560</option><option>3840</option>
+      </select>
+    </label>
+    <label>Format
+      <select id="format"><option selected>webp</option><option>jpeg</option><option>avif</option></select>
+    </label>
+    <label>Quality <input id="quality" type="range" min="0.5" max="0.95" step="0.01" value="0.82"> <output id="q">0.82</output></label>
+    <label><input id="worker" type="checkbox" checked> Web Worker</label>
+    <label><input id="keep" type="checkbox" checked> Keep original if smaller</label>
+  </fieldset>
+
+  <div class="support" id="support">Checking what this browser can encode…</div>
+
+  <div class="drop" id="drop">
+    <input id="files" type="file" accept="image/*" multiple>
+    <div>or drop photos here</div>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th></th><th>File</th><th>Before</th><th>After</th><th>Saved</th><th>Output</th><th>Time</th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="total" id="total"></div>
+
+  <script type="module">
+    import { compressImage, canEncode } from "../src/browser/index.js";
+
+    const $ = (id) => document.getElementById(id);
+    const kb = (bytes) => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(2)} MB` : `${Math.round(bytes / 1024)} KB`;
+    $("quality").oninput = () => ($("q").value = $("quality").value);
+
+    // What this browser can do. Safari reports WebP as not encodable.
+    const formats = ["webp", "avif", "jpeg"];
+    const support = await Promise.all(formats.map((f) => canEncode(f)));
+    const worker = typeof Worker !== "undefined" && typeof OffscreenCanvas !== "undefined";
+    $("support").innerHTML =
+      formats.map((f, i) => `<span class="${support[i] ? "yes" : "no"}">${f}: ${support[i] ? "encodes" : "no"}</span>`).join("") +
+      `<span class="${worker ? "yes" : "no"}">worker + OffscreenCanvas: ${worker ? "yes" : "no — main thread"}</span>`;
+
+    let before = 0, after = 0;
+
+    async function run(files) {
+      for (const file of files) {
+        const row = document.createElement("tr");
+        row.innerHTML = `<td></td><td>${file.name}</td><td class="num">${kb(file.size)}</td><td colspan="4">working…</td>`;
+        $("rows").append(row);
+
+        const started = performance.now();
+        try {
+          const r = await compressImage(file, {
+            maxDimension: Number($("max").value),
+            format: $("format").value,
+            quality: Number($("quality").value),
+            useWorker: $("worker").checked,
+            keepOriginalIfSmaller: $("keep").checked,
+          });
+          const ms = Math.round(performance.now() - started);
+          before += r.originalBytes;
+          after += r.bytes;
+          const url = URL.createObjectURL(r.file);
+          const saved = Math.round((1 - r.bytes / r.originalBytes) * 100);
+          row.innerHTML =
+            `<td><a href="${url}" download="${r.file.name}"><img src="${url}" alt=""></a></td>` +
+            `<td>${file.name}</td>` +
+            `<td class="num">${kb(r.originalBytes)}<br>${r.sourceWidth}×${r.sourceHeight}</td>` +
+            `<td class="num">${kb(r.bytes)}<br>${r.width}×${r.height}</td>` +
+            `<td class="num">${saved}%</td>` +
+            `<td>${r.kept ? "original kept" : r.type}</td>` +
+            `<td class="num">${ms} ms</td>`;
+        } catch (error) {
+          row.cells[3].outerHTML = `<td colspan="4" class="err">${error.code ?? "failed"}: ${error.message}</td>`;
+        }
+        if (before) $("total").textContent = `Total: ${kb(before)} → ${kb(after)} (${Math.round((1 - after / before) * 100)}% smaller)`;
+      }
+    }
+
+    $("files").onchange = (e) => run([...e.target.files]);
+    const drop = $("drop");
+    drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+    drop.ondragleave = () => drop.classList.remove("over");
+    drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); run([...e.dataTransfer.files]); };
+  </script>
+</body>
+</html>
