@@ -252,17 +252,41 @@ Each photo is decoded with its EXIF orientation applied, scaled so its longer si
 | `format` | `"webp"` | `"webp"`, `"jpeg"` or `"avif"` |
 | `fallbackFormat` | `"jpeg"` | Used when the browser can't encode `format` |
 | `quality` | `0.82` | Encoder quality, 0–1 |
-| `keepOriginalIfSmaller` | `true` | Return the input untouched when it already fits, is in an accepted format, and re-encoding wouldn't shrink it. A kept file also keeps its metadata — set `false` to always strip it |
+| `keepOriginalIfSmaller` | `true` | Return the input untouched when it already fits, is in an accepted format, carries no EXIF or XMP metadata, and re-encoding would save less than `minSaving`. Set `false` to always re-encode |
+| `minSaving` | `0.1` | The saving that justifies re-encoding an image that already fits: `0.1` is 10%. Every re-encode costs a little quality, so smaller gains aren't worth it |
+| `decode` | none | A fallback decoder for images the browser can't read: `(file) => Promise<Blob>`, returning a format it can. See [HEIC photos](#heic-photos) |
 | `useWorker` | `true` | Work in a Web Worker when the browser supports `OffscreenCanvas` |
 
-`compressImage(file, options)` handles one file and resolves to `{ file, width, height, type, sourceWidth, sourceHeight, originalBytes, bytes, kept }`. `compressImages(files, options, { concurrency, onProgress })` handles many — one at a time by default, since decoding a 12-megapixel photo takes about 48 MB — and collects failures instead of throwing. `canEncode("webp")` tells you what the browser can produce.
+`compressImage(file, options)` handles one file and resolves to `{ file, width, height, type, sourceWidth, sourceHeight, originalBytes, bytes, kept }`. `compressImages(files, options, { concurrency, onProgress })` handles many — one at a time by default, since decoding a 12-megapixel photo takes about 48 MB — and collects failures instead of throwing. `canEncode("webp")` tells you what the browser can produce, and `hasMetadata(blob)` whether an image carries EXIF or XMP.
+
+### When the original is kept
+
+Photos that already fit — shared through a messenger, say, which shrinks them — are often compressed about as well as they can be. Re-encoding those costs quality for a saving of a few percent, so an original that fits is kept unless re-encoding saves at least `minSaving`. One exception: a photo with EXIF or XMP metadata is always re-encoded, whatever the saving, because that's where phones keep the GPS position, and it must not slip through.
 
 Good to know:
 
 - **Safari can't encode WebP from a canvas.** Asked for WebP, it silently returns PNG, so `webready/browser` checks what it actually got and re-encodes as `fallbackFormat`. On iPhones — where every browser uses Safari's engine — you get JPEG. No browser encodes AVIF from a canvas today, so `"avif"` falls back too.
 - **The worker needs no bundler setup.** It's created from the module's own code, so there's no separate file to configure. It needs a build target that keeps `async` functions native (ES2017 or later — Vite's default). If a Content-Security-Policy blocks `blob:` workers, the work moves to the main thread.
-- **Images the browser can't read** — HEIC in Chrome, for example — fail with `code: "decode_failed"`, so you can upload the original instead.
+- **Images the browser can't read** fail with `code: "decode_failed"`, unless a `decode` fallback reads them — see below.
 - **Safe to import during server rendering**: nothing touches the browser until you call it.
+
+### HEIC photos
+
+iPhones save photos as HEIC, which only Safari can read. On an iPhone that rarely matters, since iOS converts the photos when a website asks for them, but HEIC files copied to a computer reach Chrome, Firefox and Edge as they are. `webready/heic` decodes them with [heic-to](https://github.com/hoppergee/heic-to), a browser build of libheif, which you install yourself:
+
+```bash
+npm i heic-to
+```
+
+Pass it as the fallback decoder, imported lazily, so the decoder — a few megabytes — downloads only when a photo the browser can't read actually turns up:
+
+```js
+const { file } = await compressImage(input, {
+  decode: (f) => import("webready/heic").then((heic) => heic.decodeHeic(f)),
+});
+```
+
+The decoding runs on the main thread, so the page pauses for a moment on each HEIC photo. If your Content-Security-Policy forbids `eval`, write the same few lines with heic-to's `heic-to/csp` build.
 
 ## Node API
 
