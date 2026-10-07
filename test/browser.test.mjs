@@ -25,8 +25,23 @@ const stats = { bitmaps: 0, closed: 0, draws: [], fills: [], canvases: [] };
 let engine = "chrome";
 
 /** A photo of the given size; the fake decoder reads its dimensions. */
+// Real file headers, so the metadata check can read the fakes.
+const segment = (marker, length) => [0xff, marker, (length + 2) >> 8, (length + 2) & 0xff, ...new Array(length).fill(0x20)];
+const jpegHeader = ({ exif = false, icc = false } = {}) =>
+  [0xff, 0xd8, ...segment(0xe0, 14), ...(icc ? segment(0xe2, 14) : []), ...(exif ? segment(0xe1, 30) : []), 0xff, 0xda];
+const webpHeader = (flags) => {
+  const chunk = flags === undefined ? "VP8 " : "VP8X";
+  const bytes = [..."RIFF"].map((c) => c.charCodeAt(0)).concat([0, 0, 0, 0], [..."WEBP"].map((c) => c.charCodeAt(0)), [...chunk].map((c) => c.charCodeAt(0)), [10, 0, 0, 0]);
+  if (flags !== undefined) bytes.push(flags);
+  return bytes;
+};
+
+/** A photo of the given size; the fake decoder reads its dimensions. */
 function photo(name, type, width, height, bytes, extra = {}) {
-  return Object.assign(new File([new Uint8Array(bytes)], name, { type }), {
+  const data = new Uint8Array(bytes);
+  if (type === "image/jpeg") data.set(jpegHeader(extra));
+  if (type === "image/webp") data.set(webpHeader(extra.webpFlags));
+  return Object.assign(new File([data], name, { type }), {
     __width: width, __height: height, ...extra,
   });
 }
@@ -183,6 +198,52 @@ must(batch.errors[0].code === "decode_failed" && batch.errors[0].file.name === "
 must(batch.entries[0].source.name === "IMG_1.JPG" && batch.entries[1].source.name === "thumb.jpeg", "entries keep input order");
 must(progress.length === 3 && progress[2].startsWith("3/3"), "progress reported for every file");
 
+// ── keeping the original ─────────────────────────────────────────────────
+// A 2000x1500 photo fits in 2560 px; as WebP the fakes encode it to 442,800 bytes.
+console.log("keeping the original:");
+const { hasMetadata } = lib;
+const fitting = (bytes, extra) => photo("fits.jpeg", "image/jpeg", 2000, 1500, bytes, extra);
+r = await compressImage(fitting(450_000), noWorker);
+must(r.kept && r.bytes === 450_000, "a photo that fits is kept when re-encoding saves under 10% (here 1.6%)");
+r = await compressImage(fitting(600_000), noWorker);
+must(!r.kept && r.type === "image/webp", "...and converted when it saves more (here 26%)");
+r = await compressImage(fitting(450_000, { exif: true }), noWorker);
+must(!r.kept && r.type === "image/webp", "a photo with EXIF metadata is never kept: GPS must not slip through");
+r = await compressImage(fitting(450_000), { ...noWorker, minSaving: 0 });
+must(!r.kept, "minSaving: 0 converts whenever re-encoding is any smaller (1.0 behaviour)");
+let rangeError = null;
+try { await compressImage(fitting(450_000), { ...noWorker, minSaving: 1 }); } catch (e) { rangeError = e; }
+must(rangeError instanceof RangeError, "minSaving must be below 1");
+r = await compressImage(photo("fits.webp", "image/webp", 2000, 1500, 450_000), noWorker);
+must(r.kept, "a simple WebP that fits is kept too");
+
+console.log("hasMetadata:");
+const bytesOf = (header, size = 400) => { const d = new Uint8Array(size); d.set(header); return new Blob([d]); };
+must((await hasMetadata(bytesOf(jpegHeader()))) === false, "JPEG with only JFIF: none");
+must((await hasMetadata(bytesOf(jpegHeader({ icc: true })))) === false, "JPEG with a colour profile: none (not personal)");
+must((await hasMetadata(bytesOf(jpegHeader({ exif: true })))) === true, "JPEG with an APP1 segment (EXIF or XMP): yes");
+must((await hasMetadata(bytesOf([0xff, 0xd8, ...segment(0xe0, 14)]))) === true, "JPEG cut off before its image data: not vouched for");
+must((await hasMetadata(bytesOf(webpHeader()))) === false, "simple WebP: none");
+must((await hasMetadata(bytesOf(webpHeader(0x10)))) === false, "extended WebP with only alpha: none");
+must((await hasMetadata(bytesOf(webpHeader(0x08)))) === true && (await hasMetadata(bytesOf(webpHeader(0x04)))) === true, "extended WebP flagging EXIF or XMP: yes");
+must((await hasMetadata(bytesOf([0x89, 0x50, 0x4e, 0x47]))) === true, "other formats: not vouched for");
+
+console.log("decode (fallback decoder):");
+const heic = () => photo("IMG_0001.HEIC", "image/heic", 4032, 3024, 2_000_000, { __undecodable: true });
+const decodedJpeg = () => Object.assign(new Blob([new Uint8Array(10)], { type: "image/jpeg" }), { __width: 4032, __height: 3024 });
+let decodeCalls = 0;
+r = await compressImage(heic(), { ...noWorker, decode: async (f) => { decodeCalls++; must(f.name === "IMG_0001.HEIC", "the decoder gets the original file"); return decodedJpeg(); } });
+must(r.type === "image/webp" && r.width === 2560 && r.height === 1920 && decodeCalls === 1, "an image the browser can't read is decoded, then shrunk as usual");
+must(r.file.name === "IMG_0001.webp" && r.originalBytes === 2_000_000 && !r.kept, "named after the original, measured against it, never kept");
+r = await compressImage(fitting(450_000), { ...noWorker, decode: async () => { decodeCalls++; return decodedJpeg(); } });
+must(decodeCalls === 1, "the decoder is only called when the browser can't read the image");
+error = null;
+try { await compressImage(heic(), { ...noWorker, decode: async () => { throw new Error("libheif failed"); } }); } catch (e) { error = e; }
+must(error?.code === "decode_failed" && error.cause?.message === "libheif failed", "if the decoder fails too: decode_failed, with its error as the cause");
+error = null;
+try { await compressImage(heic(), { ...noWorker, decode: async () => "nope" }); } catch (e) { error = e; }
+must(error instanceof TypeError, "the decoder must return a Blob");
+
 // ── worker ───────────────────────────────────────────────────────────────
 console.log("worker:");
 globalThis.Worker = VmWorker;
@@ -195,7 +256,9 @@ error = null;
 try { await compressImage(photo("bad.heic", "image/heic", 10, 10, 10, { __undecodable: true })); }
 catch (e) { error = e; }
 must(error?.code === "decode_failed", "worker errors keep their code across the message boundary");
-must(!/\b(targetSize|outputName|toMimeType|runPool|DEFAULTS)\b/.test(VmWorker.lastSource ?? ""), "the worker source references none of the module's helpers");
+must(!/\b(targetSize|outputName|toMimeType|runPool|DEFAULTS|hasMetadata)\b/.test(VmWorker.lastSource ?? ""), "the worker source references none of the module's helpers");
+r = await compressImage(heic(), { decode: async () => decodedJpeg() });
+must(r.type === "image/webp" && r.width === 2560, "the fallback decoder runs on the main thread; the worker shrinks its result");
 
 // A fresh module instance, so the broken worker doesn't leak into the tests above.
 const lib2 = await import("../src/browser/index.js?broken-worker");

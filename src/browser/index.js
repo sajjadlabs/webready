@@ -15,6 +15,13 @@
 // default). On iPhones that means every browser, since they all use Safari's
 // engine.
 //
+// An image that already fits is kept as it is when re-encoding would save
+// little (`minSaving`) and it carries no metadata: every re-encode costs a
+// little quality, and metadata - GPS above all - must never slip through.
+//
+// Formats the browser can't read - HEIC everywhere but Safari - can be
+// handled with `decode`, a fallback decoder; see webready/heic.
+//
 // The work runs in a Web Worker when OffscreenCanvas is available, and on the
 // main thread otherwise. The worker is created from this module's own source
 // text - no separate file, so no bundler configuration - which needs a build
@@ -30,11 +37,15 @@ export const DEFAULTS = Object.freeze({
   format: "webp",
   fallbackFormat: "jpeg",
   quality: 0.82,
-  // When the input already fits, is in an accepted format, and re-encoding
-  // doesn't make it smaller, return the input untouched. Note that such a
-  // kept file also keeps its metadata.
+  // Return the input untouched when it already fits, is in an accepted
+  // format, has no EXIF or XMP metadata, and re-encoding would save less
+  // than `minSaving` (a fraction: 0.1 = 10%).
   keepOriginalIfSmaller: true,
+  minSaving: 0.1,
   useWorker: true,
+  // A fallback decoder for images the browser can't read:
+  // (file) => Promise<Blob> in a format it can. See webready/heic.
+  decode: null,
 });
 
 const MIME_TYPES = {
@@ -67,6 +78,48 @@ export function targetSize(width, height, maxDimension) {
     width: Math.max(1, Math.round(width * scale)),
     height: Math.max(1, Math.round(height * scale)),
   };
+}
+
+const ascii = (bytes, start, length) => String.fromCharCode(...bytes.subarray(start, start + length));
+
+/**
+ * Whether an image carries EXIF or XMP metadata - where cameras put the GPS
+ * position. Reads only the start of the file. JPEG: an APP1 segment before
+ * the image data. WebP: the extended header's EXIF and XMP flags. Any other
+ * format, or a file that can't be read to its image data, counts as having
+ * metadata, so it's never vouched for.
+ * @param {Blob} blob
+ * @returns {Promise<boolean>}
+ */
+export async function hasMetadata(blob) {
+  const head = new Uint8Array(await blob.slice(0, 256 * 1024).arrayBuffer());
+
+  if (head[0] === 0xff && head[1] === 0xd8) {
+    let i = 2;
+    while (i + 4 <= head.length) {
+      if (head[i] !== 0xff) return true; // not where a marker should be: don't vouch
+      const marker = head[i + 1];
+      if (marker === 0xff) {
+        i += 1; // fill byte
+        continue;
+      }
+      if (marker === 0xda || marker === 0xd9) return false; // image data: no metadata before it
+      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+        i += 2; // markers without a length
+        continue;
+      }
+      if (marker === 0xe1) return true; // APP1: EXIF or XMP
+      i += 2 + ((head[i + 2] << 8) | head[i + 3]);
+    }
+    return true;
+  }
+
+  if (head.length >= 21 && ascii(head, 0, 4) === "RIFF" && ascii(head, 8, 4) === "WEBP") {
+    if (ascii(head, 12, 4) !== "VP8X") return false; // the simple formats can't hold metadata
+    return (head[20] & 0x0c) !== 0; // 0x08 EXIF, 0x04 XMP
+  }
+
+  return true;
 }
 
 /** "IMG_1234.JPG" + "image/webp" -> "IMG_1234.webp" */
@@ -335,23 +388,32 @@ export async function compressImage(file, options = {}) {
   const type = toMimeType(opts.format);
   const fallbackType = opts.fallbackFormat ? toMimeType(opts.fallbackFormat) : null;
   const settings = { maxDimension: opts.maxDimension, type, fallbackType, quality: opts.quality };
+  if (!(opts.minSaving >= 0 && opts.minSaving < 1)) {
+    throw new RangeError("minSaving must be at least 0 and below 1");
+  }
 
   let result;
-  if (opts.useWorker && workerSupported()) {
+  let decoded = false;
+  try {
+    result = await shrink(file, settings, opts.useWorker);
+  } catch (error) {
+    if (error?.code !== "decode_failed" || typeof opts.decode !== "function") throw error;
+    // The browser can't read it; the app's fallback decoder may. It runs
+    // here, on the main thread: functions can't be sent to a worker.
+    let readable;
     try {
-      result = await runInWorker(file, settings);
-    } catch (error) {
-      if (!error.workerFailure) throw error;
-      result = await shrinkImage(file, settings);
+      readable = await opts.decode(file);
+    } catch (cause) {
+      error.cause = cause;
+      throw error;
     }
-  } else {
-    result = await shrinkImage(file, settings);
+    if (!(readable instanceof Blob)) throw new TypeError("options.decode must resolve to a Blob");
+    result = await shrink(readable, settings, opts.useWorker);
+    decoded = true;
   }
 
   const { blob, width, height, sourceWidth, sourceHeight } = result;
-  const fits = Math.max(sourceWidth, sourceHeight) <= opts.maxDimension;
-  const accepted = file.type === type || file.type === fallbackType;
-  if (opts.keepOriginalIfSmaller && fits && accepted && blob.size >= file.size) {
+  if (!decoded && (await keepsOriginal(file, blob, opts, [type, fallbackType], sourceWidth, sourceHeight))) {
     return {
       file,
       width: sourceWidth,
@@ -380,6 +442,31 @@ export async function compressImage(file, options = {}) {
     bytes: output.size,
     kept: false,
   };
+}
+
+// Shrink in the worker when possible; on the main thread if there's none,
+// or it can't start (a Content-Security-Policy blocking blob: workers).
+async function shrink(source, settings, useWorker) {
+  if (useWorker && workerSupported()) {
+    try {
+      return await runInWorker(source, settings);
+    } catch (error) {
+      if (!error.workerFailure) throw error;
+    }
+  }
+  return shrinkImage(source, settings);
+}
+
+// Every re-encode costs a little quality, so an image that already fits,
+// in a format we'd produce anyway, is kept unless re-encoding saves at
+// least `minSaving` - and never when it carries metadata, which must not
+// slip through.
+async function keepsOriginal(file, blob, opts, acceptedTypes, sourceWidth, sourceHeight) {
+  if (!opts.keepOriginalIfSmaller) return false;
+  if (Math.max(sourceWidth, sourceHeight) > opts.maxDimension) return false;
+  if (!acceptedTypes.includes(file.type)) return false;
+  if (blob.size < file.size * (1 - opts.minSaving)) return false;
+  return !(await hasMetadata(file));
 }
 
 /**
