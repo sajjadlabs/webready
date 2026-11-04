@@ -2,6 +2,12 @@
 
 All notable changes to webready are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## 1.2.0
+
+- **`--no-audio`, or `videos.audio: false`, drops the sound track.** A `muted` attribute stops the browser playing the sound, but every visitor still downloads it — so a background or hero video that always plays muted is now smaller by its whole sound track.
+- **Upgrading re-encodes nothing.** Keeping the sound is still the default, and only turning it off changes a video's settings, so outputs made by 1.1.0 stay up to date.
+- **Guided mode asks about the sound** when the folder has videos.
+
 ## 1.1.0
 
 - **Photos that already fit are kept when re-encoding gains little.** The browser build used to re-encode an image whenever the result was any smaller — even 2% — losing a little quality for nothing. Now an original that already fits is kept unless re-encoding saves at least `minSaving` (new option, default 10%).

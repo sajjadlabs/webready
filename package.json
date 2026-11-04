@@ -1,6 +1,6 @@
 {
   "name": "webready",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Make your media web-ready: responsive AVIF/WebP images and MP4 video with ready-to-paste markup and React/Vue components — plus a browser module that shrinks photos before upload.",
   "type": "module",
   "bin": {
