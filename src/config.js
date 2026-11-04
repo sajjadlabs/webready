@@ -22,14 +22,14 @@ export const DEFAULTS = Object.freeze({
   widths: [640, 1024, 1440, 1920],
   markup: "srcset",
   images: { format: ["avif"], quality: { ...DEFAULT_QUALITY }, effort: 4, lossless: false },
-  videos: { quality: 80, preset: "medium", poster: true },
+  videos: { quality: 80, preset: "medium", poster: true, audio: true },
 });
 
 const CONFIG_KEYS = new Set([
   "input", "out", "publicPath", "widths", "only", "markup", "concurrency", "images", "videos",
 ]);
 const IMAGE_KEYS = new Set(["format", "quality", "effort", "lossless"]);
-const VIDEO_KEYS = new Set(["quality", "preset", "poster"]);
+const VIDEO_KEYS = new Set(["quality", "preset", "poster", "audio"]);
 
 /** A problem with the user's input or settings. The CLI exits with code 2. */
 export class ConfigError extends Error {
@@ -148,6 +148,7 @@ export function optionsFromFlags(values, { cwd = process.cwd() } = {}) {
   }
   if (values.preset !== undefined) videos.preset = values.preset;
   if (values["no-poster"]) videos.poster = false;
+  if (values["no-audio"]) videos.audio = false;
 
   if (problems.length) throw new ConfigError(problems.join("\n"));
   if (Object.keys(images).length) options.images = images;
@@ -231,6 +232,7 @@ export function resolveOptions(input, options = {}, { cwd = process.cwd() } = {}
     problems.push(`videos.preset must be one of: ${X264_PRESETS.join(", ")}`);
   }
   if (typeof o.videos.poster !== "boolean") problems.push("videos.poster must be true or false");
+  if (typeof o.videos.audio !== "boolean") problems.push("videos.audio must be true or false");
 
   if (problems.length) throw new ConfigError(problems.join("\n"));
 

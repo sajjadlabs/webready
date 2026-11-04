@@ -72,12 +72,17 @@ export async function fingerprint(file, previous) {
 
 /** A key for the settings that shape a kind's outputs: change them and those sources re-encode. */
 export function settingsKey(kind, settings) {
+  // `audio` joins the key only when it is off. Keeping the sound is what
+  // every earlier version did, so a manifest written before the option
+  // existed still matches and nothing re-encodes after an upgrade.
+  const { audio, ...videos } = settings.videos;
   const relevant =
     kind === "image"
       ? { widths: settings.widths, ...settings.images }
       : {
           widths: settings.widths,
-          ...settings.videos,
+          ...videos,
+          ...(audio === false ? { audio: false } : {}),
           posterFormat: settings.images.formats.at(-1),
           posterQuality: settings.images.quality[settings.images.formats.at(-1)],
         };

@@ -101,6 +101,11 @@
           "type": "boolean",
           "default": true,
           "description": "Make a poster image for each video."
+        },
+        "audio": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep the sound track. false drops it: for background and hero videos that always play muted, whose sound would be downloaded and never heard."
         }
       }
     }

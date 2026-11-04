@@ -9,7 +9,8 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import sharp from "sharp";
-import { webready, watch, resolveFfmpeg, readManifest, CollisionError } from "../src/index.js";
+import { webready, watch, resolveFfmpeg, readManifest, CollisionError, probeVideo, resolveOptions } from "../src/index.js";
+import { settingsKey } from "../src/lib/manifest.js";
 
 let failures = 0;
 const must = (cond, msg) => {
@@ -154,6 +155,36 @@ must(mediaHtml.includes('<source type="image/avif" media="(max-width: 640px)" sr
 must(mediaHtml.includes('<source type="image/avif" srcset="/media/hero-1024.avif">'), "media style: the widest source has no media query");
 await webready(media, { ...base, widths: [640, 1024], markup: "none" });
 must(!exists("webready.html") && exists("webready.json"), "markup none: no webready.html, but the manifest stays");
+
+// ── sound ────────────────────────────────────────────────────────────────
+section("sound");
+{
+  // A video that played under the old option set: what 1.1.0 resolved.
+  const settings = resolveOptions(media, base);
+  const before = { ...settings, videos: { quality: 80, preset: "ultrafast", poster: true } };
+  must(settingsKey("video", settings) === settingsKey("video", before), "keeping the sound gives the same key as before the option existed: upgrading re-encodes nothing");
+  const silent = resolveOptions(media, { ...base, videos: { ...base.videos, audio: false } });
+  must(settingsKey("video", silent) !== settingsKey("video", settings), "dropping it changes the key");
+}
+if (ffmpeg) {
+  const soundOut = path.join(root, "sound");
+  const soundBase = { ...base, out: soundOut, only: "videos", widths: [640] };
+  const hasAudio = (rel) => probeVideo(ffmpeg, path.join(soundOut, rel)).hasAudio;
+  const size = (rel) => fs.statSync(path.join(soundOut, rel)).size;
+
+  report = await webready(media, soundBase);
+  must(report.videos.converted === 1 && hasAudio("intro-640.mp4"), "the sound is kept by default");
+  const withSound = size("intro-640.mp4");
+
+  report = await webready(media, { ...soundBase, videos: { ...soundBase.videos, audio: false } });
+  must(report.videos.converted === 1, "audio: false re-encodes the video");
+  must(!hasAudio("intro-640.mp4"), "...without a sound track");
+  must(size("intro-640.mp4") < withSound, `...and the file is smaller (${withSound} → ${size("intro-640.mp4")} bytes)`);
+  must(fs.existsSync(path.join(soundOut, "intro-poster.webp")), "...and still gets its poster");
+
+  report = await webready(media, { ...soundBase, videos: { ...soundBase.videos, audio: true } });
+  must(report.videos.converted === 1 && hasAudio("intro-640.mp4"), "turning it back on brings the sound back");
+}
 
 // ── collisions ───────────────────────────────────────────────────────────
 section("collisions");

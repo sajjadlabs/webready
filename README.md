@@ -50,7 +50,7 @@ media/                    media-web/
 ```
 
 - **Images** (`jpg`, `jpeg`, `png`, `webp`, `avif`, `tiff`, `gif`) become AVIF, WebP, or both, at your breakpoint widths.
-- **Videos** (`mp4`, `mov`, `webm`, `mkv`, `avi`, `m4v`) become MP4 (H.264/AAC) at the same widths, with a poster image, encoded for instant playback on every device.
+- **Videos** (`mp4`, `mov`, `webm`, `mkv`, `avi`, `m4v`) become MP4 (H.264/AAC) at the same widths, with a poster image, encoded for instant playback on every device. `--no-audio` drops the sound from muted background videos.
 - **Nothing is ever upscaled**: the largest rendition is capped at the source's width. Your folder structure is mirrored.
 - **`webready.html`** holds the markup for every file, ready to paste:
 
@@ -134,6 +134,7 @@ Without a terminal (CI, scripts), or with `--yes`, it never prompts.
 | `--video-quality <1-100>` | `videos.quality` | `80` | Mapped to x264 CRF |
 | `--preset <name>` | `videos.preset` | `medium` | x264 preset: slower means smaller files at the same quality |
 | `--no-poster` | `videos.poster` | on | Don't make poster images |
+| `--no-audio` | `videos.audio` | on | Drop the sound track — for muted background videos |
 | `--only <images\|videos>` | `only` | both | Process one kind only |
 | `--markup <srcset\|media\|none>` | `markup` | `srcset` | Style of `webready.html` — see [below](#srcset-or-media) |
 | `--concurrency <n>` | `concurrency` | CPU cores | Images encoded in parallel |
@@ -177,7 +178,7 @@ Put your settings in `webready.config.json`, and a plain `webready` does the res
     "quality": { "avif": 60, "webp": 80 },
     "effort": 4
   },
-  "videos": { "quality": 80, "preset": "medium", "poster": true },
+  "videos": { "quality": 80, "preset": "medium", "poster": true, "audio": true },
   "markup": "srcset"
 }
 ```
@@ -338,6 +339,16 @@ The exit code is `1` if any file failed, so the job fails with it, and the repor
 ### An upload form
 
 See [Browser build](#browser-build-shrink-photos-before-upload). Compress, then upload the returned `File` as usual — a `FormData` field or a presigned `PUT` both work.
+
+### A muted hero or background video
+
+A `muted` attribute stops the browser playing the sound, but every visitor still downloads it. Drop it at the source, and spend the encode time a one-off file deserves:
+
+```bash
+webready ./hero --no-audio --preset veryslow -w 1920
+```
+
+`--no-audio` removes the sound track. `--preset veryslow` encodes several times slower and usually saves 5–10% at the same quality setting, which pays off for a file every visitor downloads. `-w 1920` makes only the full-size rendition, for a page that always plays that one.
 
 ## Formats and browser support
 

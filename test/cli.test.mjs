@@ -35,6 +35,7 @@ await sharp({ create: { width: 300, height: 200, channels: 3, background: "#a73"
 console.log("basics:");
 let r = run(["--help"]);
 must(r.code === 0 && r.out.includes("webready <folder> [options]") && r.out.includes("--public-path"), "--help prints the usage");
+must(r.out.includes("--no-audio"), "...including --no-audio");
 r = run(["--version"]);
 must(r.code === 0 && /^\d+\.\d+\.\d+\n$/.test(r.out), `--version prints the version (${r.out.trim()})`);
 r = run(["media", "--qualty", "50"]);
@@ -84,6 +85,9 @@ must(report?.images?.converted === 2, "a flag overrides the config file (format 
 fs.writeFileSync(path.join(root, "webready.config.json"), JSON.stringify({ input: "media", widht: [320] }));
 r = run(["--yes"]);
 must(r.code === 2 && /unknown key "widht"/.test(r.err), "a typo in the config: exit 2, naming it");
+fs.writeFileSync(path.join(root, "webready.config.json"), JSON.stringify({ input: "media", videos: { audio: "off" } }));
+r = run(["--yes"]);
+must(r.code === 2 && /videos\.audio must be true or false/.test(r.err), "videos.audio must be a boolean: exit 2, naming it");
 
 fs.rmSync(root, { recursive: true, force: true });
 console.log(failures ? `\n${failures} FAILED` : "\nAll good ✅");

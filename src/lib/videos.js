@@ -87,8 +87,14 @@ export function probeVideo(ffmpeg, filePath) {
 
 const abortError = () => Object.assign(new Error("Stopped"), { name: "AbortError" });
 
-/** Encode one rendition; progress comes from ffmpeg's `-progress` stream. */
-export function transcodeRendition(ffmpeg, input, output, { width, crf, preset, duration, onProgress, signal }) {
+/**
+ * Encode one rendition; progress comes from ffmpeg's `-progress` stream.
+ *
+ * `audio: false` drops the sound track (-an). A muted attribute only stops
+ * the browser playing the sound; the bytes are still downloaded, so a
+ * background or hero video that is always muted should not carry them.
+ */
+export function transcodeRendition(ffmpeg, input, output, { width, crf, preset, duration, audio = true, onProgress, signal }) {
   const args = [
     "-y", "-hide_banner", "-loglevel", "error",
     "-i", input,
@@ -99,7 +105,7 @@ export function transcodeRendition(ffmpeg, input, output, { width, crf, preset, 
     "-pix_fmt", "yuv420p", // plays on every device
     "-profile:v", "high",
     "-movflags", "+faststart", // index first: playback starts before the download ends
-    "-c:a", "aac", "-b:a", "128k",
+    ...(audio ? ["-c:a", "aac", "-b:a", "128k"] : ["-an"]),
     "-map_metadata", "-1", // drop metadata, location included
     "-progress", "pipe:1", "-nostats",
     output,
@@ -154,8 +160,9 @@ async function extractPoster(ffmpeg, file, outDir, parsed, { width, format, qual
 }
 
 /**
- * Encode one video as MP4 (H.264/AAC) renditions at `settings.widths`, plus
- * a poster in the most widely supported of the image formats.
+ * Encode one video as MP4 (H.264, with AAC sound unless `videos.audio` is
+ * false) renditions at `settings.widths`, plus a poster in the most widely
+ * supported of the image formats.
  *
  * @returns manifest entry { type, source, width, height, duration, poster, renditions }
  */
@@ -165,6 +172,8 @@ export async function optimizeVideo(ffmpeg, file, outDir, settings, { onProgress
 
   const widths = pickWidths(info.width, settings.widths, { even: true });
   const crf = qualityToCrf(settings.videos.quality);
+  // Sound only when it is wanted and there is some to keep.
+  const audio = settings.videos.audio !== false && info.hasAudio;
   const parsed = path.posix.parse(file.rel);
   fs.mkdirSync(path.join(outDir, parsed.dir), { recursive: true });
 
@@ -175,6 +184,7 @@ export async function optimizeVideo(ffmpeg, file, outDir, settings, { onProgress
       width,
       crf,
       preset: settings.videos.preset,
+      audio,
       duration: info.duration,
       onProgress: (percent) => onProgress?.({ width, percent }),
       signal,

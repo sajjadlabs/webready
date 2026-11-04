@@ -27,6 +27,7 @@ const OPTIONS = {
   "video-quality": { type: "string" },
   preset: { type: "string" },
   "no-poster": { type: "boolean" },
+  "no-audio": { type: "boolean" },
   only: { type: "string" },
   markup: { type: "string" },
   concurrency: { type: "string" },
@@ -65,6 +66,7 @@ ${color.bold("Videos")}
       --video-quality <1-100>    video quality (default: 80)
       --preset <name>            x264 preset (default: medium)
       --no-poster                don't make poster images
+      --no-audio                 drop the sound track (muted background videos)
 
 ${color.bold("Running")}
       --only <images|videos>     process one kind only
@@ -282,7 +284,8 @@ function describeScan(scan) {
 
 function describeSettings(settings) {
   const images = settings.images.formats.map((f) => `${FORMAT_NAMES[f]} ${settings.images.quality[f]}`).join(" + ");
-  return `${images} · ${settings.widths.join("/")} · MP4 ${settings.videos.quality}`;
+  const sound = settings.videos.audio === false ? ", no sound" : "";
+  return `${images} · ${settings.widths.join("/")} · MP4 ${settings.videos.quality}${sound}`;
 }
 
 async function ask(prompt) {
@@ -389,6 +392,14 @@ async function customSettings({ cwd, input, options, hasVideos }) {
         { value: "slow", label: "Smallest files", hint: "slower" },
       ],
       initialValue: X264_PRESETS.includes(current.videos.preset) ? current.videos.preset : "medium",
+    }));
+    videos.audio = await ask(p.select({
+      message: "Video sound",
+      options: [
+        { value: true, label: "Keep it" },
+        { value: false, label: "Remove it", hint: "for muted background videos — smaller files" },
+      ],
+      initialValue: current.videos.audio !== false,
     }));
   }
 
